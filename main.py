@@ -259,13 +259,24 @@ def main(devmode=False):
             continue
         
         if user['type'] == 'Half Day Off':
-            td_log_start_time = td_time_log[0]['start']
-            td_log_end_time = td_time_log[-1]['start']
-            minutes_logged = td_time_log[-1]['time']/60
-            td_log_end_dt_utc = datetime.strptime(td_log_end_time, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=pytz.UTC)
-            td_log_end_dt_utc_plus = td_log_end_dt_utc + timedelta(minutes=minutes_logged)
-            td_end_time = td_log_end_dt_utc_plus.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-            start_end_time = get_start_and_end_time(td_log_start_time, td_end_time) #test only
+            if td_time_log == []:
+                pto_to_add = 0.5
+                start_str = f"{yesterday_est_str}T14:00:00.000Z"
+                dt_utc = datetime.strptime(start_str, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=pytz.UTC)
+                dt_utc_plus4 = dt_utc + timedelta(hours=4)
+                utc_str_plus4 = dt_utc_plus4.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+                start_end_time = {
+                    "start_time": start_str,
+                    "end_time": utc_str_plus4
+                }
+            else:
+                td_log_start_time = td_time_log[0]['start']
+                td_log_end_time = td_time_log[-1]['start']
+                minutes_logged = td_time_log[-1]['time']/60
+                td_log_end_dt_utc = datetime.strptime(td_log_end_time, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=pytz.UTC)
+                td_log_end_dt_utc_plus = td_log_end_dt_utc + timedelta(minutes=minutes_logged)
+                td_end_time = td_log_end_dt_utc_plus.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+                start_end_time = get_start_and_end_time(td_log_start_time, td_end_time) #test only
 
         elif user['type'] not in ['Half Day Off', 'Flex-Time (Hours will be made up)']:
             pto_to_add = max(0.5, min(user['available_pto'], 1))
