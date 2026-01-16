@@ -36,6 +36,7 @@ def get_users_with_pto():
         match = re.search(r'/project/(\d+)/task/(\d+)', asana_link)
         project_id = None
         task_id = None
+        isGlobal = False if "United States of America" in record["fields"].get("Current Country", []) else True
         if match:
             project_id = match.group(1)
             task_id = match.group(2)
@@ -52,7 +53,8 @@ def get_users_with_pto():
             "available_pto": available_pto,
             "asana_project": project_id,
             "asana_task": task_id,
-            'asana_link': asana_link
+            'asana_link': asana_link,
+            "isGlobal": isGlobal
         })
 
     return {"records": records}
@@ -240,6 +242,13 @@ def main(devmode=False):
         if user['email'] == '':
             logging.warning(f"No email found.\n\tUser {user['name']}\n\tAirtable Record: {airtable_record_link}")
             continue
+        
+        if not user['isGlobal']:
+            print(f"Skipping US Employee.\n\tEmail: {user['email']}\n\tAirtable Record: {airtable_record_link}")
+            asana_comment = f"ℹ️ Skipped adding PTO Hours in TimeDoctor for US Employee:\n\t• PTO Date: {yesterday_est.strftime('%Y-%m-%d')}\n\t• Request Type: {user['type']}\n\t• Employee: {user['name']} ({user['email']})"
+            airtable_logs = f"{user['td_logs']}, {yesterday_est_str}: ℹ️PTO not added in TD - US Employee" if user['td_logs'] != [] else f"{yesterday_est_str}: ℹ️PTO not added in TD - US Employee"
+            post_asana_and_airtable(status='move', user=user, asana_comment=asana_comment, task_type="comment,assign", airtable_logs=airtable_logs)
+            continue
 
         td_user = search_workers(user['email'])#"hannah.delacruz@myamazonguy.com")
         if not td_user: 
@@ -259,8 +268,8 @@ def main(devmode=False):
             continue
         
         if user['type'] == 'Half Day Off':
+            pto_to_add = 0.5
             if td_time_log == []:
-                pto_to_add = 0.5
                 start_str = f"{yesterday_est_str}T14:00:00.000Z"
                 dt_utc = datetime.strptime(start_str, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=pytz.UTC)
                 dt_utc_plus4 = dt_utc + timedelta(hours=4)
