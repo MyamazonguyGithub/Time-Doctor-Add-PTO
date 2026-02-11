@@ -9,6 +9,9 @@ from rate_limiter.python.time_doctor_throttler import TimeDoctorThrottler
 
 time_doctor_throttler = TimeDoctorThrottler()
 
+TD_TASK_ID = 'Zgbg4e7SUiVONdHV'
+TD_PROJECT_ID = 'ZgRr0VuMLIiSdL-D'
+
 def get_users_with_pto():
     import requests
 
@@ -102,8 +105,8 @@ def add_timedoctor_pto(user_id, start_end_time, asana_link):
         "userId": user_id,
         "start": start_end_time["start_time"],
         "end": start_end_time["end_time"],
-        "taskId": 'Zgbg4e7SUiVONdHV',         # numeric ID
-        "projectId": 'ZgRr0VuMLIiSdL-D',   # numeric ID
+        "taskId": TD_TASK_ID,         # numeric ID
+        "projectId": TD_PROJECT_ID,   # numeric ID
         "operation": "add",
         "reason": asana_link,
         "approved": True
@@ -239,10 +242,12 @@ def main(devmode=False):
     for user in users_with_pto["records"]:
         airtable_record_link = f"https://airtable.com/appfccXiah8EtMfbZ/tblD4HH6VsqXtBZ5G/{user['id']}"
 
+        # email is empty in Airtable
         if user['email'] == '':
             logging.warning(f"No email found.\n\tUser {user['name']}\n\tAirtable Record: {airtable_record_link}")
             continue
         
+        # SKip if the employee is US based on the Current Country field in AT
         if not user['isGlobal']:
             print(f"Skipping US Employee.\n\tEmail: {user['email']}\n\tAirtable Record: {airtable_record_link}")
             asana_comment = f"ℹ️ Skipped adding PTO Hours in TimeDoctor for US Employee:\n\t• PTO Date: {yesterday_est.strftime('%Y-%m-%d')}\n\t• Request Type: {user['type']}\n\t• Employee: {user['name']} ({user['email']})"
@@ -250,7 +255,7 @@ def main(devmode=False):
             post_asana_and_airtable(status='move', user=user, asana_comment=asana_comment, task_type="comment,assign", airtable_logs=airtable_logs)
             continue
 
-        td_user = search_workers(user['email'])#"hannah.delacruz@myamazonguy.com")
+        td_user = search_workers(user['email'])
         if not td_user: 
             logging.error(f"No TimeDoctor user found.\n\tEmail: {user['email']}\n\tAirtable Record: {airtable_record_link}")
             asana_comment = f"❌ Failed to add PTO Hours in TimeDoctor:\n\tReason: No TimeDoctor user found with email {user['email']}\n\t• PTO Date: {yesterday_est.strftime('%Y-%m-%d')}\n\t• Request Type: {user['type']}\n\t• Employee: {user['name']} ({user['email']})"
@@ -259,6 +264,24 @@ def main(devmode=False):
             continue
 
         td_time_log = get_td_time_log(td_user, yesterday_est)
+
+        # When HR already added PTO Hours in TD, then Skip adding PTO hours.
+        if len(td_time_log) > 0: 
+            skipIteration = False
+            for itlog in td_time_log:
+                mode = itlog.get('mode')
+                taskId = itlog.get('taskId')
+                projectId = itlog.get('projectId')
+                if mode == 'manual' and taskId == TD_TASK_ID and projectId == TD_PROJECT_ID:
+                    skipIteration = True
+                    logging.warning(f"User has manual time log entries for the PTO day, which indicate they have already added PTO.\n\tEmail: {user['email']}\n\tAirtable Record: {airtable_record_link}")
+                    asana_comment = f"ℹ️ Skipped adding PTO Hours in TimeDoctor:\n\tReason: User has manual time log entries for the PTO day, which indicate they have already added PTO.\n\t• PTO Date: {yesterday_est.strftime('%Y-%m-%d')}\n\t• Request Type: {user['type']}\n\t• Employee: {user['name']} ({user['email']})"
+                    airtable_logs = f"{user['td_logs']}, {yesterday_est_str}: ℹ️PTO not added in TD - Manual Time Log" if user['td_logs'] != [] else f"{yesterday_est_str}: ℹ️PTO not added in TD - Manual Time Log"
+                    #post_asana_and_airtable(status="failed", user=user, asana_comment=asana_comment, task_type="comment", airtable_logs=airtable_logs)
+                    break
+            if skipIteration:
+                continue
+
         if len(td_time_log) > 0 and user['type'] not in ['Half Day Off', 'Flex-Time (Hours will be made up)']:
             logging.error(f"Failed to add PTO Hours in TD.\n\tEmail: {user['email']}\n\tAirtable Record: {airtable_record_link}")
             pto_to_add = max(0.5, min(user['available_pto'], 1)) if user['type'] not in ['Half Day Off', 'Flex-Time (Hours will be made up)'] else 0.5
